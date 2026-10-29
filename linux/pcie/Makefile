@@ -36,10 +36,12 @@ DRIVER_NAME_NO_EXT=hailo_pci
 VERSION_MAJOR=$(shell grep "\#define HAILO_DRV_VER_MAJOR" ../../common/hailo_ioctl_common.h | sed "s/\#define HAILO_DRV_VER_MAJOR //g")
 VERSION_MINOR=$(shell grep "\#define HAILO_DRV_VER_MINOR" ../../common/hailo_ioctl_common.h | sed "s/\#define HAILO_DRV_VER_MINOR //g")
 VERSION_RELEASE=$(shell grep "\#define HAILO_DRV_VER_REVISION" ../../common/hailo_ioctl_common.h | sed "s/\#define HAILO_DRV_VER_REVISION //g")
+# Quote Make values as literal shell arguments, including apostrophes.
+shell_quote = '$(subst ','"'"',$(1))'
 DRIVER_VERSION=$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_RELEASE)
-is_driver_version_valid=$(shell echo $(DRIVER_VERSION) | grep '^[[:digit:]]\+\.[[:digit:]]\+\.[[:digit:]]\+$$' > /dev/null; echo $$?)
+is_driver_version_valid=$(shell printf '%s\n' $(call shell_quote,$(DRIVER_VERSION)) | LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$'; echo $$?)
 ifneq ($(is_driver_version_valid),0)
-    $(error "DRIVER_VERSION is invalid! Got $(DRIVER_VERSION)")
+    $(error invalid driver version)
 endif
 
 
@@ -143,39 +145,12 @@ uninstall_standalone:
 	$(Q)echo "Standalone removal is unsupported without installer ownership records; no files were removed." >&2
 	$(Q)exit 1
 
-# Installing a version must not run an implicit (and potentially destructive)
-# uninstall. Refuse to overwrite a pre-existing DKMS registration or source
-# tree; the caller must explicitly decide how to handle that installation.
 install_dkms:
-	$(Q)if [ "$$(id -u)" -ne 0 ]; then \
-		echo "make install_dkms should run as root" >&2; exit 1; \
-	fi
-	$(Q)if ! command -v dkms >/dev/null 2>&1; then \
-		echo "make install_dkms requires dkms to be installed" >&2; exit 1; \
-	fi
-	$(Q)if [ -e "/usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)" ] || \
-		[ -e "/var/lib/dkms/$(DRIVER_NAME_NO_EXT)/$(DRIVER_VERSION)" ]; then \
-		echo "$(DRIVER_NAME_NO_EXT)/$(DRIVER_VERSION) already exists; refusing to overwrite" >&2; \
-		exit 1; \
-	fi
-
-# Copy driver sources
-	$(Q)mkdir -p /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-	$(Q)cp -r $(PCIE_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-	$(Q)cp -r $(COMMON_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers
-	$(Q)cp -r $(VDMA_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-	$(Q)cp -r $(UTILS_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-
-# Copy common headers (standalone layout fix is tracked separately in PR #56).
-	$(Q)mkdir -p /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/common
-	$(Q)cp -r $(COMMON_INCLUDE_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/common
-
-	$(Q)sed 's/@PCIE_DRIVER_VERSION@/$(DRIVER_VERSION)/g' dkms.conf.in > /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/dkms.conf
-	$(Q)dkms add -m $(DRIVER_NAME_NO_EXT) -v $(DRIVER_VERSION)
-	$(Q)dkms build -m $(DRIVER_NAME_NO_EXT) -v $(DRIVER_VERSION) -k "$(kernelver)" || (cat /var/lib/dkms/$(DRIVER_NAME_NO_EXT)/$(DRIVER_VERSION)/build/make.log; exit 1)
-
-# No --force: retain DKMS's normal safety checks and module-signing behavior.
-	$(Q)dkms install -m $(DRIVER_NAME_NO_EXT) -v $(DRIVER_VERSION) -k "$(kernelver)"
+	$(Q)python3 -B dkms_install.py --version $(call shell_quote,$(DRIVER_VERSION)) \
+		--kernel $(call shell_quote,$(kernelver)) --headers $(call shell_quote,$(abspath $(KERNEL_DIR))) \
+		--pcie $(call shell_quote,$(PCIE_SRC_DIRECTORY)) --common $(call shell_quote,$(COMMON_SRC_DIRECTORY)) \
+		--vdma $(call shell_quote,$(VDMA_SRC_DIRECTORY)) --utils $(call shell_quote,$(UTILS_SRC_DIRECTORY)) \
+		--includes $(call shell_quote,$(COMMON_INCLUDE_DIRECTORY))
 
 endif
 

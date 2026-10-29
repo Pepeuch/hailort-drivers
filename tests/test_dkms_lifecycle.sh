@@ -37,8 +37,8 @@ done
 INSTALL=$(cd "$PCIE" && make -n install_dkms)
 UNINSTALL=$(cd "$PCIE" && make -n uninstall)
 
-printf '%s\n' "$INSTALL" | grep -F 'dkms add -m hailo_pci -v 4.24.0' >/dev/null
-printf '%s\n' "$INSTALL" | grep -F 'dkms install -m hailo_pci -v 4.24.0' >/dev/null
+printf '%s\n' "$INSTALL" | grep -F "python3 -B dkms_install.py --version '4.24.0'" >/dev/null
+printf '%s\n' "$INSTALL" | grep -F -- "--kernel '" >/dev/null
 if printf '%s\n' "$INSTALL" | grep -Eq '^dkms install .*--force|^sh dkms_uninstall.sh'; then
     echo 'FAIL: installer still uses --force or uninstalls' >&2; exit 1
 fi
