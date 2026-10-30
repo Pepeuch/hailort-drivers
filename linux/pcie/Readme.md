@@ -167,6 +167,18 @@ crash durability (`fsync`), Secure Boot acceptance or protection against
 uncooperative privileged writers is promised. Real failure/restoration tests
 require a disposable VM. No module loading occurs in this helper.
 
+### Signature and completion checks
+
+DKMS owns signing through its framework configuration. A successful installer
+exit does not prove a trusted, valid module signature or Secure Boot acceptance.
+For example, DKMS 3.2.2 can warn after a sign-file failure and continue building.
+Check the selected artifact and its certificate/trust independently; do not
+disable Secure Boot or replace signing keys to bypass a failed check.
+
+A final staging-cleanup error may occur after DKMS installation has completed.
+Inspect the retained transcript, effective module and DKMS status before retry;
+no rollback or automatic replacement of the retained source tree is attempted.
+
 ### Hardware-free regression tests
 
 Inside the development container, run:
