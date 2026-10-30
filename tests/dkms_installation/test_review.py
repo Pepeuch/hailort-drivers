@@ -12,7 +12,7 @@ class ReviewTests(base.InstallTests):
         return data
     def assert_signing_untouched(self,data):
         for p,before in data.items():self.assertEqual(before,(p.read_bytes(),p.stat().st_mode))
-    def test_review_signing_failure_stops_before_install_and_retains_recovery(self):
+    def test_review_reported_build_failure_retains_signing_diagnostic(self):
         data=self.signing_sentinels();original=installer.run_dkms
         def signing_failure(command,log):
             if command[1]=='build':log.write('fixture-only sign-file failure\n');log.flush()
@@ -35,6 +35,14 @@ class ReviewTests(base.InstallTests):
         self.assertIn('Installer stopped at: complete',(self.destination()/'.hailo-install.log').read_text())
         self.assertEqual(1,len(list((self.root/'sources').glob('*.stage-*'))))
         for p,data in self.before.items():self.assertEqual(data,p.read_bytes())
+    def test_review_zero_exit_with_signing_warning_is_not_a_secure_boot_proof(self):
+        original=installer.run_dkms
+        def warning(command,log):
+            if command[1]=='build':log.write("fixture-only DKMS warning: failed to sign module; exit remains zero\n");log.flush()
+            return original(command,log)
+        with patch.object(installer,'run_dkms',side_effect=warning):code,_=self.invoke()
+        self.assertEqual(0,code);self.assertEqual(3,len(self.calls()))
+        self.assertIn('failed to sign module',(self.destination()/'.hailo-install.log').read_text())
 def load_tests(loader,tests,pattern):
     return unittest.TestSuite(ReviewTests(name) for name in sorted(dir(ReviewTests)) if name.startswith('test_review_'))
 if __name__=='__main__':unittest.main()
