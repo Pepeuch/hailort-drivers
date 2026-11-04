@@ -269,7 +269,11 @@ def install(args):
             try:
                 fd = stack.enter_context(directory(path))
             except OSError as error:
-                raise InstallError(f'missing/unsafe source directory: {path}; SDK include layout remains required (PR #56 is separate)') from error
+                # The standalone repository has no SDK common/include tree.
+                # Only its absence is optional; unsafe or malformed inputs fail.
+                if relative == 'common/include' and isinstance(error, FileNotFoundError):
+                    continue
+                raise InstallError(f'missing/unsafe source directory: {path}') from error
             entries = manifest(fd)
             if not entries:
                 raise InstallError(f'empty source directory: {path}')

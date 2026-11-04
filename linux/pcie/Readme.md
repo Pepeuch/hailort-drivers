@@ -65,14 +65,13 @@ sudo make install_dkms kernelver=6.12.113+deb13-amd64 \
   KERNEL_DIR=/usr/src/linux-headers-6.12.113+deb13-amd64
 ```
 
-The SDK common include directory is still required. In a standalone checkout,
-its absence fails before staging; the separate source-layout fix in PR #56 is
-not implemented here. Do not create dummy includes to bypass this check. Empty
-source directories, symlinks and special files in source trees are rejected.
-Sources and build tools must be trusted; this is not a sandbox for untrusted
-root-executed Makefiles, DKMS configuration, hooks or compiler inputs. GNU Make
-itself interprets command-line Make expressions; only ordinary value arguments
-are intended. The helper also validates direct invocation arguments.
+The standalone repository stores common headers in `common/`, copied as a required
+source tree. The extra SDK `common/include` directory is copied when present;
+only its absence is optional. Existing empty directories, links, special files
+and other source errors still fail before publication. This adapts swancoder's
+upstream PR https://github.com/hailo-ai/hailort-drivers/pull/56 (original commit
+2d721619b211c3a1dc21a1855198419bc0b67793) to the staged installer, preserving
+its contribution in this merge's ancestry rather than restoring the old copy target.
 
 Our installer uses a persistent advisory lock inode in
 `/run/hailo-dkms-installer/install.lock`, protected by a root-owned 0700 directory.

@@ -237,11 +237,11 @@ class InstallTests(unittest.TestCase):
         self.rejected('do not match')
 
     def test_missing_source_directories(self):
-        for name in ('pcie', 'common', 'vdma', 'utils', 'includes'):
+        for name in ('pcie', 'common', 'vdma', 'utils'):
             previous = getattr(self.args, name)
             setattr(self.args, name, str(self.root / 'absent'))
             with self.subTest(name=name):
-                self.rejected('PR #56 is separate')
+                self.rejected('missing/unsafe source directory')
             setattr(self.args, name, previous)
 
     def test_missing_required_source_file(self):
@@ -729,6 +729,48 @@ class InstallTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn('invalid driver version', result.stderr)
         self.assertFalse(marker.exists())
+
+
+    def test_standalone_without_sdk_includes(self):
+        self.args.includes = str(self.root / 'missing-sdk/common/include')
+        self.assertEqual(0, self.invoke()[0])
+        self.assertEqual(3, len(self.calls()))
+        self.assertFalse((self.destination() / 'common/include').exists())
+        self.assertEqual((self.root / 'input/common/hailo_ioctl_common.h').read_bytes(),
+                         (self.destination() / 'hailort/drivers/common/hailo_ioctl_common.h').read_bytes())
+
+    def test_present_sdk_includes_are_preserved(self):
+        self.assertEqual(0, self.invoke()[0])
+        self.assertEqual((self.root / 'input/includes/public.h').read_bytes(),
+                         (self.destination() / 'common/include/public.h').read_bytes())
+
+    def test_optional_include_directory_link_rejected(self):
+        path = self.root / 'optional-link'
+        path.symlink_to(self.root / 'input/includes', target_is_directory=True)
+        self.args.includes = str(path)
+        self.rejected('missing/unsafe source directory')
+
+    def test_optional_include_dangling_link_rejected(self):
+        path = self.root / 'dangling-link'
+        path.symlink_to(self.root / 'absent', target_is_directory=True)
+        self.args.includes = str(path)
+        self.rejected('missing/unsafe source directory')
+
+    def test_optional_include_regular_file_rejected(self):
+        self.args.includes = str(self.root / 'input/includes/public.h')
+        self.rejected('missing/unsafe source directory')
+
+    def test_optional_include_fifo_rejected(self):
+        path = self.root / 'optional-fifo'
+        os.mkfifo(path)
+        self.args.includes = str(path)
+        self.rejected('missing/unsafe source directory')
+
+    def test_absent_optional_include_does_not_hide_missing_required_file(self):
+        self.args.includes = str(self.root / 'absent')
+        (self.root / 'input/common/hailo_ioctl_common.h').unlink()
+        self.rejected('missing required source file')
+
 
 
 if __name__ == '__main__':
