@@ -36,10 +36,12 @@ DRIVER_NAME_NO_EXT=hailo_pci
 VERSION_MAJOR=$(shell grep "\#define HAILO_DRV_VER_MAJOR" ../../common/hailo_ioctl_common.h | sed "s/\#define HAILO_DRV_VER_MAJOR //g")
 VERSION_MINOR=$(shell grep "\#define HAILO_DRV_VER_MINOR" ../../common/hailo_ioctl_common.h | sed "s/\#define HAILO_DRV_VER_MINOR //g")
 VERSION_RELEASE=$(shell grep "\#define HAILO_DRV_VER_REVISION" ../../common/hailo_ioctl_common.h | sed "s/\#define HAILO_DRV_VER_REVISION //g")
+# Quote Make values as literal shell arguments, including apostrophes.
+shell_quote = '$(subst ','"'"',$(1))'
 DRIVER_VERSION=$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_RELEASE)
-is_driver_version_valid=$(shell echo $(DRIVER_VERSION) | grep '^[[:digit:]]\+\.[[:digit:]]\+\.[[:digit:]]\+$$' > /dev/null; echo $$?)
+is_driver_version_valid=$(shell printf '%s\n' $(call shell_quote,$(DRIVER_VERSION)) | LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$'; echo $$?)
 ifneq ($(is_driver_version_valid),0)
-    $(error "DRIVER_VERSION is invalid! Got $(DRIVER_VERSION)")
+    $(error invalid driver version)
 endif
 
 
@@ -85,7 +87,9 @@ help:
 	$(Q)echo "*                                                                             "
 	$(Q)echo "*   install_dkms Installs the driver using DKMS.                              "
 	$(Q)echo "*                                                                             "
-	$(Q)echo "*   uninstall    Uninstalls the driver                                        "
+	$(Q)echo "*   uninstall / uninstall_dkms: Remove this DKMS version for kernelver        "
+	$(Q)echo "*   uninstall_all_dkms: Remove this DKMS version for all kernels              "
+	$(Q)echo "*   uninstall_standalone: Refuse removal without installer ownership records "
 	$(Q)echo "*                                                                             "
 	$(Q)echo "*   help:        Display this help                                            "
 	$(Q)echo "******************************************************************************"
@@ -112,50 +116,41 @@ install:
 	$(Q)$(MAKE) -C $(KERNEL_DIR) M=$(PWD) INSTALL_MOD_DIR=kernel/drivers/misc modules_install
 	$(Q)$(DEPMOD) -a
 
-uninstall: uninstall_all_dkms
-ifneq ($(wildcard $(MODULES)),)
-	$(Q)rm -f $(MODULES)kernel/drivers/misc/$(DRIVER_NAME_NO_EXT)*
-	$(Q)$(DEPMOD) -a
-endif
+# DKMS owns its installed files, backups, restoration and dependency updates.
+# Never follow DKMS removal with standalone cleanup: that can erase an original
+# module which DKMS has just restored.
+uninstall: uninstall_dkms
 
-install_dkms: uninstall
-ifneq ($(shell id -u),0)
-	@echo "make install_dkms should run as root"
-	exit 1
-endif
-ifeq ($(strip $(shell which dkms)),)
-	@echo "make install_dkms requires dkms to be installed"
-	exit 1
-endif
+uninstall_dkms:
+	$(Q)if [ "$$(id -u)" -ne 0 ]; then \
+		echo "make uninstall / uninstall_dkms should run as root" >&2; exit 1; \
+	fi
+	$(Q)sh dkms_uninstall.sh "$(DRIVER_VERSION)" --kernel "$(kernelver)"
 
-# Copy driver sources
-	$(Q)mkdir -p /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-	$(Q)cp -r $(PCIE_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-	$(Q)cp -r $(COMMON_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers
-	$(Q)cp -r $(VDMA_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-	$(Q)cp -r $(UTILS_SRC_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/hailort/drivers/linux
-
-# Copy common headers
-	$(Q)mkdir -p /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/common
-	$(Q)cp -r $(COMMON_INCLUDE_DIRECTORY) /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/common
-
-	$(Q)sed 's/@PCIE_DRIVER_VERSION@/$(DRIVER_VERSION)/g' dkms.conf.in > /usr/src/$(DRIVER_NAME_NO_EXT)-$(DRIVER_VERSION)/dkms.conf
-	$(Q)dkms add -m $(DRIVER_NAME_NO_EXT) -v $(DRIVER_VERSION)
-	$(Q)dkms build -m $(DRIVER_NAME_NO_EXT) -v $(DRIVER_VERSION) || (cat /var/lib/dkms/$(DRIVER_NAME_NO_EXT)/$(DRIVER_VERSION)/build/make.log; exit 1)
-
-# Install DKMS
-	$(Q)dkms install -m $(DRIVER_NAME_NO_EXT) -v $(DRIVER_VERSION) --force
-
+# Compatibility target: 'all' now means all kernels of this version, never all
+# driver versions. Retain the existing helper's one-argument --all interface.
 uninstall_all_dkms:
-ifneq ($(shell id -u),0)
-	@echo "make uninstall_all_dkms should run as root"
-	exit 1
-endif
-# Uninstall driver from dkms, if dkms is installed
-# If the driver wasn't installed with dkms, the following commands won't do anything
-ifneq ($(strip $(shell which dkms)),)
-	-$(Q)sh dkms_uninstall.sh
-endif
+	$(Q)if [ "$$(id -u)" -ne 0 ]; then \
+		echo "make uninstall_all_dkms should run as root" >&2; exit 1; \
+	fi
+	$(Q)sh dkms_uninstall.sh "$(DRIVER_VERSION)"
+
+# Legacy standalone installations have no reliable installer ownership record.
+# Version/name/vermagic matching is not proof of ownership. Until provenance is
+# tracked by installation, refuse cleanup rather than guess from a pathname.
+uninstall_standalone:
+	$(Q)if [ "$$(id -u)" -ne 0 ]; then \
+		echo "make uninstall_standalone should run as root" >&2; exit 1; \
+	fi
+	$(Q)echo "Standalone removal is unsupported without installer ownership records; no files were removed." >&2
+	$(Q)exit 1
+
+install_dkms:
+	$(Q)python3 -B dkms_install.py --version $(call shell_quote,$(DRIVER_VERSION)) \
+		--kernel $(call shell_quote,$(kernelver)) --headers $(call shell_quote,$(abspath $(KERNEL_DIR))) \
+		--pcie $(call shell_quote,$(PCIE_SRC_DIRECTORY)) --common $(call shell_quote,$(COMMON_SRC_DIRECTORY)) \
+		--vdma $(call shell_quote,$(VDMA_SRC_DIRECTORY)) --utils $(call shell_quote,$(UTILS_SRC_DIRECTORY)) \
+		--includes $(call shell_quote,$(COMMON_INCLUDE_DIRECTORY))
 
 endif
 
@@ -164,3 +159,7 @@ endif
 .PHONY: clean
 .PHONY: install
 .PHONY: uninstall
+.PHONY: uninstall_dkms
+.PHONY: uninstall_all_dkms
+.PHONY: uninstall_standalone
+.PHONY: install_dkms
