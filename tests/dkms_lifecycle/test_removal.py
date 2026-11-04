@@ -296,8 +296,8 @@ class RemovalTests(unittest.TestCase):
         self.assertNotIn("--force", result.stdout)
         self.assertNotIn("dkms_uninstall.sh", result.stdout)
         self.assertNotIn("rm -", result.stdout)
-        for action in ("build", "install"):
-            self.assertIn(f'dkms {action} -m hailo_pci -v 4.24.0 -k "kernel-b"', result.stdout)
+        self.assertIn("python3 -B dkms_install.py --version '4.24.0'", result.stdout)
+        self.assertIn("--kernel 'kernel-b'", result.stdout)
 
     def test_every_removal_target_checks_root_before_backend_mutation(self):
         self.standalone()
