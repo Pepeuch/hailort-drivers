@@ -172,7 +172,7 @@ struct hailo_vdma_buffer *hailo_vdma_buffer_map(struct device *dev,
         mmap_read_unlock(current->mm);
         if (IS_ENABLED(HAILO_SUPPORT_MMIO_DMA_MAPPING)) {
             if (NULL == vma) {
-                dev_err(dev, "no vma for virt_addr/size = 0x%08lx/0x08zx\n", addr_or_fd, size);
+                dev_err(dev, "no vma for virt_addr/size = 0x%08lx/0x%08zx\n", addr_or_fd, size);
                 ret = -EFAULT;
                 goto free_buffer_struct;
             }
